@@ -140,10 +140,16 @@ impl Config {
     }
 }
 pub fn config_dir() -> Result<PathBuf> {
+    Ok(config_home()?.join("likh"))
+}
+pub fn config_home() -> Result<PathBuf> {
     if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
-        return Ok(PathBuf::from(path).join("likh"));
+        let path = PathBuf::from(path);
+        if path.is_absolute() {
+            return Ok(path);
+        }
     }
-    Ok(PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".config/likh"))
+    Ok(PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".config"))
 }
 
 #[cfg(test)]

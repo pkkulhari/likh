@@ -52,21 +52,29 @@ At startup, Likh prints its version and `Hotkey enabled: Ctrl+Win (XKB modifier 
 
 Recording ends after two minutes even if you keep holding. There is no always-on microphone or local speech model. The audio server connection remains open while idle, but the microphone stream exists only during a recording. The configured default microphone is selected each time.
 
-To install the binary and optionally start it at desktop login:
+To install the binary, run it in the background, and start it automatically after boot:
 
 ```sh
 install -Dm755 target/release/likh ~/.local/bin/likh
-mkdir -p ~/.config/autostart
-cp packaging/likh.desktop ~/.config/autostart/likh.desktop
+~/.local/bin/likh run -d
+~/.local/bin/likh autostart
 ```
 
-Ensure `~/.local/bin` is on your desktop session's PATH, or change `Exec` in the desktop file to the absolute path of your installed binary. Sign in once before enabling autostart. Run in a terminal initially to see diagnostics. Stop with Ctrl+C, SIGTERM, or `pkill -TERM -x likh`.
+`likh run` stays in the foreground. `likh run -d` (or `likh run --daemon`) detaches from the terminal and returns after desktop, audio, and authentication initialization succeeds. It prints the process ID and log path; startup failures return a nonzero exit code. Diagnostics append to `daemon.log` in the private runtime directory (normally `$XDG_RUNTIME_DIR/likh/daemon.log`). Stop the background process with the printed `kill -TERM PID` command, or use `pkill -TERM -x likh`. Foreground mode also accepts Ctrl+C.
+
+`likh autostart` (or `likh autostart enable`) starts Likh at **desktop login after boot**, when X11 and audio are available. It writes `$XDG_CONFIG_HOME/autostart/likh.desktop` (normally `~/.config/autostart/likh.desktop`) with the absolute path of the binary you invoke. Run it from your installed binary; rerun it if you move that binary. Desktop launcher limitations mean the executable's path cannot contain `=` or `%`. Sign in once before enabling autostart. Enabling autostart does not start another instance immediately.
+
+Use `likh autostart status` to inspect the entry and `likh autostart disable` to disable future launches. Disabling saves a `Hidden=true` entry, which also suppresses a system-wide entry; it does not stop a running process. Explicit `--config-dir` and `--runtime-dir` options are saved as absolute paths. Without `--runtime-dir`, autostart uses the new login session's runtime directory. Shell-only environment variables are not saved, so use `likh login` to store credentials for autostart.
 
 ## Configuration and commands
 
 Copy [config.example.toml](config.example.toml) to `~/.config/likh/config.toml`. `$XDG_CONFIG_HOME` is respected. English is the default; `language` accepts the service's supported language codes. A `microphone` source name overrides the system default. `pactl list short sources` can list names if PulseAudio utilities are installed.
 
 ```sh
+likh run -d       # Run in the background; --daemon also works
+likh autostart    # Enable launch at desktop login after boot
+likh autostart status
+likh autostart disable
 likh status       # Local login status; does not contact Claude
 likh doctor       # X11/XTEST, audio server, configuration, login status
 likh copy-last    # Copy the last available transcript from the running app

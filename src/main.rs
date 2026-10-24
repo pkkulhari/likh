@@ -1,7 +1,9 @@
 mod app;
 mod audio;
 mod auth;
+mod autostart;
 mod config;
+mod daemon;
 mod desktop;
 mod transcribe;
 
@@ -30,12 +32,32 @@ enum Command {
     Logout,
     /// Show local authentication status without revealing credentials.
     Status,
-    /// Run the background voice typing app until Ctrl+C or SIGTERM.
-    Run,
+    /// Run the voice typing app until Ctrl+C or SIGTERM.
+    Run {
+        /// Detach from the terminal and run in the background.
+        #[arg(short = 'd', long)]
+        daemon: bool,
+        #[arg(long, hide = true, conflicts_with = "daemon")]
+        daemon_child: bool,
+    },
+    /// Start Likh automatically at desktop login after boot.
+    Autostart {
+        #[command(subcommand)]
+        command: Option<AutostartCommand>,
+    },
     /// Check desktop, microphone server, configuration, and local login.
     Doctor,
     /// Copy the last transcript retained by the running app.
     CopyLast,
+}
+#[derive(Subcommand)]
+enum AutostartCommand {
+    /// Enable autostart (the default when no action is given).
+    Enable,
+    /// Disable autostart without stopping a running app.
+    Disable,
+    /// Show whether autostart is enabled.
+    Status,
 }
 fn main() {
     if let Err(error) = execute() {
@@ -45,6 +67,9 @@ fn main() {
 }
 fn execute() -> Result<()> {
     let cli = Cli::parse();
+    if let Command::Autostart { command } = cli.command {
+        return autostart::manage(command, cli.config_dir, cli.runtime_dir);
+    }
     let dir = cli.config_dir.map(Ok).unwrap_or_else(config::config_dir)?;
     let config = config::Config::load(&dir)?;
     let store = auth::Store { dir };
@@ -77,6 +102,12 @@ fn execute() -> Result<()> {
         Command::CopyLast => {
             app::copy_last(&cli.runtime_dir.map(Ok).unwrap_or_else(app::runtime_dir)?)?
         }
+        Command::Run { daemon: true, .. } => {
+            daemon::start(
+                &store.dir,
+                &cli.runtime_dir.map(Ok).unwrap_or_else(app::runtime_dir)?,
+            )?;
+        }
         command => {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -84,11 +115,17 @@ fn execute() -> Result<()> {
                 .build()?;
             match command {
                 Command::Login { no_browser } => runtime.block_on(store.login(no_browser))?,
-                Command::Run => app::run(
+                Command::Run { daemon_child, .. } => app::run(
                     config,
                     store,
                     cli.runtime_dir.map(Ok).unwrap_or_else(app::runtime_dir)?,
                     &runtime,
+                    || {
+                        if daemon_child {
+                            daemon::notify_ready()?;
+                        }
+                        Ok(())
+                    },
                 )?,
                 _ => unreachable!(),
             }

@@ -107,6 +107,7 @@ pub fn run(
     store: Store,
     runtime_dir: PathBuf,
     runtime: &tokio::runtime::Runtime,
+    ready: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
     private_dir(&runtime_dir)?;
     let _lock = Lock::acquire(&runtime_dir.join("daemon.lock"), true)?;
@@ -124,10 +125,16 @@ pub fn run(
     runtime.block_on(store.token())?;
     let shutdown = CancellationToken::new();
     let stop = shutdown.clone();
+    let (mut term, mut interrupt) = {
+        let _enter = runtime.enter();
+        let term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .context("Install SIGTERM handler")?;
+        let interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+            .context("Install SIGINT handler")?;
+        (term, interrupt)
+    };
     runtime.spawn(async move {
-        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("SIGTERM handler");
-        tokio::select! {_ = tokio::signal::ctrl_c()=>(), _ = term.recv()=>()};
+        tokio::select! {_ = interrupt.recv()=>(), _ = term.recv()=>()};
         stop.cancel();
     });
     let (done, results) = mpsc::channel::<(u64, Outcome)>();
@@ -140,6 +147,7 @@ pub fn run(
         "Likh {} ready. Hold Ctrl+Win to speak; release either to finish, both to paste. Escape cancels.",
         env!("CARGO_PKG_VERSION")
     );
+    ready()?;
     while !shutdown.is_cancelled() {
         if let Some(event) = desktop.next(if session.is_some() || paste.is_some() {
             10
