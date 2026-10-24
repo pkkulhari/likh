@@ -1,0 +1,19 @@
+# Copy to ~/.config/likh/config.toml (or $XDG_CONFIG_HOME/likh/config.toml).
+language = "en"
+# Optional PulseAudio/PipeWire source name; unset follows the system default.
+# microphone = "alsa_input.usb-example.analog-stereo"
+max_recording_seconds = 120
+connect_timeout_seconds = 20
+finalize_timeout_seconds = 5
+
+# Compatibility settings for Claude's undocumented voice service.
+endpoint = "wss://api.anthropic.com/api/ws/speech_to_text/voice_stream"
+cli_version = "2.1.309"
+
+# Lowercase WM_CLASS, obtained with `xprop WM_CLASS` and clicking the app.
+# Available shortcuts: ctrl-v, ctrl-shift-v, shift-insert.
+# Common terminal applications use ctrl-shift-v automatically.
+# Zed automatically uses shift-insert for both editor and integrated terminal.
+[paste_overrides]
+# "code" = "ctrl-shift-v" # Use only when dictating into VS Code's terminal.
+# "xterm" = "shift-insert"

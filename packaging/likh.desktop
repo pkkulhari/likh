@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Likh
+Comment=Hold Ctrl+Win to type with your voice
+Exec=likh run
+Terminal=false
+Categories=Utility;Accessibility;
+X-GNOME-Autostart-enabled=true

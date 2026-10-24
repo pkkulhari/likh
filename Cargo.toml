@@ -1,0 +1,41 @@
+[package]
+name = "likh"
+version = "0.1.7"
+edition = "2024"
+rust-version = "1.89"
+description = "Hold Ctrl+Win to type with your voice on Linux/X11"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+futures-util = { version = "0.3", features = ["sink"] }
+libc = "0.2"
+rand = "0.8"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "webpki-roots", "tls12"] }
+http-body-util = "0.1"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "io-util"] }
+tokio-websockets = { version = "0.13", features = ["client", "server", "ring", "getrandom", "rustls-webpki-roots"] }
+http = "1"
+tokio-util = { version = "0.7", features = ["rt"] }
+toml = "0.8"
+url = "2"
+# ICU 2.0's display macros require alloc with writeable 0.6.4.
+writeable = { version = "0.6", features = ["alloc"] }
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
