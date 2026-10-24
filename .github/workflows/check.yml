@@ -25,7 +25,6 @@ jobs:
         run: |
           mkdir -p target/release-assets
           cp target/release/likh target/release-assets/likh-linux-x86_64
-          cp install.sh target/release-assets/install.sh
           cd target/release-assets
           sha256sum likh-linux-x86_64 > likh-linux-x86_64.sha256
       - uses: actions/upload-artifact@v4

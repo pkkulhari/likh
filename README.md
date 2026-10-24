@@ -9,7 +9,7 @@ Likh runs as one background process. A small rounded pill shows a live waveform 
 Run the same command for a first install or an update to the latest release:
 
 ```sh
-curl -fsSL https://github.com/pkkulhari/likh/releases/latest/download/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/pkkulhari/likh/master/install.sh | sh
 ```
 
 The prebuilt binary supports **Linux x86_64 with glibc 2.39 or newer** (for example, Ubuntu 24.04). It needs an X11 desktop and PulseAudio or PipeWire's PulseAudio service. On Ubuntu/Debian, install the runtime libraries if needed:
@@ -18,7 +18,7 @@ The prebuilt binary supports **Linux x86_64 with glibc 2.39 or newer** (for exam
 sudo apt install curl ca-certificates libx11-6 libxext6 libxft2 libxrandr2 libxtst6 libpulse0 libxres1
 ```
 
-The [installer](install.sh) verifies the release's SHA-256 checksum and checks that the downloaded binary runs before atomically replacing `~/.local/bin/likh`. Login, configuration, and autostart settings are preserved. Ensure `~/.local/bin` is on your PATH. To use another directory, pass `LIKH_INSTALL_DIR=/your/bin` to `sh` in the command above. Restart any running Likh instance after updating.
+The [installer](install.sh) is maintained in the repository root and downloads the latest release binary. It verifies the release's SHA-256 checksum and checks that the downloaded binary runs before atomically replacing `~/.local/bin/likh`. Login, configuration, and autostart settings are preserved. Ensure `~/.local/bin` is on your PATH. To use another directory, pass `LIKH_INSTALL_DIR=/your/bin` to `sh` in the command above. Restart any running Likh instance after updating.
 
 For the first run:
 
