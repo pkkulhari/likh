@@ -4,6 +4,32 @@ Hold **Ctrl+Win**, speak, then release the keys to paste the final transcript in
 
 Likh runs as one background process. A small rounded pill shows a live waveform while listening, with bars that react to your microphone volume. Animated dots show microphone startup and processing; errors keep readable text. The overlay never takes focus. Audio streams during the hold; only final text is pasted. Escape cancels recording or pending transcription. Nothing presses Enter for you.
 
+## Install or update
+
+Run the same command for a first install or an update to the latest release:
+
+```sh
+curl -fsSL https://github.com/pkkulhari/likh/releases/latest/download/install.sh | sh
+```
+
+The prebuilt binary supports **Linux x86_64 with glibc 2.39 or newer** (for example, Ubuntu 24.04). It needs an X11 desktop and PulseAudio or PipeWire's PulseAudio service. On Ubuntu/Debian, install the runtime libraries if needed:
+
+```sh
+sudo apt install curl ca-certificates libx11-6 libxext6 libxft2 libxrandr2 libxtst6 libpulse0 libxres1
+```
+
+The [installer](install.sh) verifies the release's SHA-256 checksum and checks that the downloaded binary runs before atomically replacing `~/.local/bin/likh`. Login, configuration, and autostart settings are preserved. Ensure `~/.local/bin` is on your PATH. To use another directory, pass `LIKH_INSTALL_DIR=/your/bin` to `sh` in the command above. Restart any running Likh instance after updating.
+
+For the first run:
+
+```sh
+likh doctor
+likh login
+likh run
+```
+
+`doctor` reports the desktop/audio checks and login status; before the first login, an unauthenticated status is expected. Build from source below for other Linux architectures or older glibc versions.
+
 ## Build and run
 
 Rust 1.89 or newer and a C compiler are required. On Ubuntu/Debian:
