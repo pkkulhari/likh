@@ -50,7 +50,7 @@ impl Desktop {
             std::env::var("XDG_SESSION_TYPE").as_deref() != Ok("wayland"),
             "Wayland is not supported yet. Log into an Xorg/X11 desktop session."
         );
-        let mut error = [0i8; 256];
+        let mut error: [c_char; 256] = [0; 256];
         let ptr = unsafe { lx_open(hotkey as i32, error.as_mut_ptr(), error.len()) };
         if ptr.is_null() {
             bail!(
@@ -80,7 +80,7 @@ impl Desktop {
     pub fn track(&self) -> String {
         let window = unsafe { lx_focus(self.ptr) };
         unsafe { lx_track(self.ptr, window) };
-        let mut class = [0i8; 256];
+        let mut class: [c_char; 256] = [0; 256];
         unsafe { lx_class(self.ptr, window, class.as_mut_ptr(), class.len()) };
         unsafe { CStr::from_ptr(class.as_ptr()) }
             .to_string_lossy()

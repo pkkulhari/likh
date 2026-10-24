@@ -182,10 +182,8 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin>(
             },
             _ = keepalive.tick(), if !finishing => send(&mut socket, Message::text("{\"type\":\"KeepAlive\"}")).await?,
             _ = tokio::time::sleep_until(deadline) => {
-                // Some service versions leave the socket open after CloseStream.
-                // Wait the full drain window; an utterance endpoint alone is not
-                // a session fence and more final utterances can follow it.
-                if finishing && transcript.pending.is_empty() && transcript.endpoint { return Ok(()); }
+                // An utterance endpoint cannot confirm that CloseStream drained
+                // all uploaded audio, even when no newer text has arrived yet.
                 bail!("Finalization timed out; use `likh copy-last` to recover available text");
             },
         }
@@ -346,6 +344,60 @@ mod tests {
         drop(tx);
         assert_eq!(task.await.unwrap(), "First. Second.");
         server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn endpoint_without_stream_close_times_out_and_preserves_text() {
+        // Cover both an older endpoint followed by more audio and an endpoint
+        // received during finalization. Neither confirms the stream is drained.
+        for earlier_endpoint in [true, false] {
+            let (a, b) = tokio::io::duplex(8192);
+            let socket = ClientBuilder::new().take_over(a);
+            let mut server = tokio_websockets::ServerBuilder::new().serve(b);
+            let mut transcript = Transcript::default();
+            if earlier_endpoint {
+                transcript
+                    .handle(r#"{"type":"TranscriptText","data":"First."}"#)
+                    .unwrap();
+                transcript
+                    .handle(r#"{"type":"TranscriptEndpoint"}"#)
+                    .unwrap();
+            }
+            let server_task = tokio::spawn(async move {
+                let mut audio = Vec::new();
+                while let Some(Ok(message)) = server.next().await {
+                    if message.is_binary() {
+                        audio.extend_from_slice(message.as_payload());
+                    }
+                    if message.as_text() == Some(r#"{"type":"CloseStream"}"#) {
+                        assert_eq!(audio, vec![1, 2]);
+                        if !earlier_endpoint {
+                            server
+                                .send(Message::text(
+                                    r#"{"type":"TranscriptText","data":"First."}"#,
+                                ))
+                                .await
+                                .unwrap();
+                            server
+                                .send(Message::text(r#"{"type":"TranscriptEndpoint"}"#))
+                                .await
+                                .unwrap();
+                        }
+                        // Keep the socket open without confirming finalization.
+                        std::future::pending::<()>().await;
+                    }
+                }
+            });
+            let (tx, rx) = mpsc::channel(1);
+            tx.send(Ok(vec![1, 2])).await.unwrap();
+            drop(tx);
+            let error = session(socket, rx, &mut transcript, Duration::from_millis(50))
+                .await
+                .unwrap_err();
+            assert!(error.to_string().contains("Finalization timed out"));
+            assert_eq!(transcript.text(), "First.");
+            server_task.abort();
+        }
     }
 
     #[tokio::test]

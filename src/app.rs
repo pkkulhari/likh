@@ -21,12 +21,43 @@ use tokio_util::sync::CancellationToken;
 struct Session {
     id: u64,
     capture: Option<Capture>,
+    capture_error: Option<String>,
     cancel: CancellationToken,
     task: tokio::task::JoinHandle<()>,
     started: Instant,
     released: Option<Instant>,
     shortcut: PasteShortcut,
 }
+impl Session {
+    fn fail_capture(&mut self, error: String) {
+        self.capture.take();
+        self.capture_error.get_or_insert(error);
+        self.released.get_or_insert_with(Instant::now);
+        // Keep the task and session ID alive until its recoverable text arrives.
+    }
+}
+
+fn complete_session(
+    session: &mut Option<Session>,
+    id: u64,
+    mut outcome: Outcome,
+    last: &mut String,
+) -> Option<(Session, Outcome)> {
+    if !session.as_ref().is_some_and(|s| s.id == id) {
+        return None;
+    }
+    let s = session.take().unwrap();
+    if let Some(error) = &s.capture_error {
+        // A full audio queue can prevent the error frame from reaching the task.
+        // Even an already-queued successful outcome must not be pasted then.
+        outcome.error.get_or_insert_with(|| error.clone());
+    }
+    if !outcome.text.is_empty() {
+        *last = outcome.text.clone();
+    }
+    Some((s, outcome))
+}
+
 impl Drop for Session {
     fn drop(&mut self) {
         self.capture.take();
@@ -170,6 +201,7 @@ pub fn run(
                         session = Some(Session {
                             id: next_id,
                             capture: Some(capture),
+                            capture_error: None,
                             cancel,
                             task,
                             started: Instant::now(),
@@ -220,6 +252,10 @@ pub fn run(
                 _ => (),
             }
         }
+        // Snapshot completed tasks before draining audio events. Capture reports
+        // errors before closing its frame channel, so even a successful outcome
+        // queued during this iteration will have its capture error applied first.
+        let completed: Vec<_> = results.try_iter().collect();
         while let Ok(event) = audio.events.try_recv() {
             match event {
                 audio::Event::Ready(id) => {
@@ -232,12 +268,13 @@ pub fn run(
                     }
                 }
                 audio::Event::Error(id, error) => {
-                    if session.as_ref().is_some_and(|s| s.id == id) {
+                    if let Some(s) = &mut session
+                        && s.id == id
+                    {
                         eprintln!("{error}");
-                        session.take();
-                        desktop.busy(false);
-                        desktop.indicator("Microphone error - see terminal");
-                        hide = Some(Instant::now() + Duration::from_secs(4));
+                        s.fail_capture(error);
+                        desktop.indicator("Microphone error - recovering text");
+                        hide = None;
                     }
                 }
             }
@@ -253,17 +290,17 @@ pub fn run(
             s.released = Some(Instant::now());
             desktop.indicator("Recording limit - release Ctrl+Win");
         }
-        while let Ok((id, outcome)) = results.try_recv() {
-            if !session.as_ref().is_some_and(|s| s.id == id) {
+        for (id, outcome) in completed {
+            let Some((s, outcome)) = complete_session(&mut session, id, outcome, &mut last) else {
                 continue;
-            }
-            let s = session.take().unwrap();
-            if !outcome.text.is_empty() {
-                last = outcome.text.clone();
-            }
+            };
             if let Some(error) = outcome.error {
                 eprintln!("{error}");
-                desktop.indicator("Transcription failed - see terminal");
+                desktop.indicator(if outcome.text.is_empty() {
+                    "Transcription failed - see terminal"
+                } else {
+                    "Transcription failed - use likh copy-last"
+                });
                 desktop.busy(false);
                 hide = Some(Instant::now() + Duration::from_secs(4));
             } else if outcome.text.trim().is_empty() {
@@ -376,4 +413,101 @@ fn deliver(desktop: &Desktop, p: &mut Paste) -> Result<()> {
     desktop.busy(false);
     desktop.indicator("");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn capture_errors_recover_delayed_and_already_queued_outcomes() {
+        for already_queued in [false, true] {
+            for error_frame_received in [false, true] {
+                let (done, results) = mpsc::channel();
+                let (finish, ready) = tokio::sync::oneshot::channel();
+                let cancel = CancellationToken::new();
+                let task = tokio::spawn(async move {
+                    ready.await.unwrap();
+                    done.send((
+                        7,
+                        Outcome {
+                            text: "current partial transcript".into(),
+                            error: error_frame_received.then(|| "microphone lost".into()),
+                        },
+                    ))
+                    .unwrap();
+                });
+                let mut session = Some(Session {
+                    id: 7,
+                    capture: None,
+                    capture_error: None,
+                    cancel: cancel.clone(),
+                    task,
+                    started: Instant::now(),
+                    released: None,
+                    shortcut: PasteShortcut::CtrlV,
+                });
+                let mut finish = Some(finish);
+                if already_queued {
+                    finish.take().unwrap().send(()).unwrap();
+                    (&mut session.as_mut().unwrap().task).await.unwrap();
+                }
+                let capture_error = if error_frame_received {
+                    "microphone lost"
+                } else {
+                    "Audio upload could not keep up; recording stopped"
+                };
+                session.as_mut().unwrap().fail_capture(capture_error.into());
+                assert!(!cancel.is_cancelled());
+                if !already_queued {
+                    finish.take().unwrap().send(()).unwrap();
+                    (&mut session.as_mut().unwrap().task).await.unwrap();
+                }
+                let (id, outcome) = results.try_recv().unwrap();
+                let mut last = "previous transcript".to_owned();
+                let (finished, outcome) =
+                    complete_session(&mut session, id, outcome, &mut last).unwrap();
+                assert!(session.is_none());
+                assert_eq!(last, "current partial transcript");
+                assert_eq!(outcome.error.as_deref(), Some(capture_error));
+                drop(finished);
+                assert!(cancel.is_cancelled());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_session_discards_late_outcome() {
+        let cancel = CancellationToken::new();
+        let mut session = Some(Session {
+            id: 7,
+            capture: None,
+            capture_error: None,
+            cancel: cancel.clone(),
+            task: tokio::spawn(std::future::pending()),
+            started: Instant::now(),
+            released: None,
+            shortcut: PasteShortcut::CtrlV,
+        });
+        session
+            .as_mut()
+            .unwrap()
+            .fail_capture("microphone lost".into());
+        session.take();
+        assert!(cancel.is_cancelled());
+        let mut last = "previous transcript".to_owned();
+        assert!(
+            complete_session(
+                &mut session,
+                7,
+                Outcome {
+                    text: "discarded transcript".into(),
+                    error: None,
+                },
+                &mut last,
+            )
+            .is_none()
+        );
+        assert_eq!(last, "previous transcript");
+    }
 }
